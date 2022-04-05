@@ -3,6 +3,8 @@
 // Smart contract that lets anyone deposit ETH into the contract
 // Only the owner of the contract can withdraw the ETH
 pragma solidity >=0.6.6 <0.9.0;
+import "./Util.sol";
+
 
 contract TFA {
     // A toy tFAAuthentication for testing
@@ -22,18 +24,14 @@ contract RTDS {
     // Owner of the smart contract
     address public owner;
 
-    // Owner of the smart contract
-    bool private isAuthenticated;
 
     // A TFA contract
     TFA tFA = new TFA();
 
+
     constructor() {
         owner = msg.sender;
-        isAuthenticated = false;
-        // the latestAuthenticationTime and latestAuthenticationBlockNumber are initialized to that of the block when the smart contract is constructed.
-        latestAuthenticationTime = block.timestamp;
-        latestAuthenticationBlockNumber = block.number;
+        latestAuthenticationBlockNumber= block.number;
     }
 
     /*
@@ -49,23 +47,13 @@ contract RTDS {
     }
 
     modifier authenticated() {
-        // ensures the isAuthenticated state is updated
-        if (latestAuthenticationTime + creditValidTime < block.timestamp) {
-            // the authenticated state is outdated
-            isAuthenticated = false;
-        }
-
-        if (
-            latestAuthenticationBlockNumber + creditValidBlockNumber <
-            block.number
-        ) {
-            // the authenticated state is outdated
-            isAuthenticated = false;
-        }
-        //is the message sender owner of the contract?
-        require(isAuthenticated == true);
+        // is the operation under authenticated state?
+        require(latestAuthenticationBlockNumber == block.number);
         _;
     }
+
+    // may be accessed by child process
+    uint256 internal latestAuthenticationBlockNumber;
 
     /*
      *
@@ -111,12 +99,12 @@ contract RTDS {
      * @param address the address to check
      * @return true if address is in the white list and false otherwise
      */
-    function whiteListReleasePolicy(address receiver)
+    function whiteListReleasePolicy(Util.Account memory receiver)
         internal
         view
         returns (bool)
     {
-        return whiteList[receiver];
+        return whiteList[receiver.accountAddress];
     }
 
     function muteWhiteListReleasePolicy() internal pure returns (bool) {
@@ -146,26 +134,12 @@ contract RTDS {
      * Privileges: Super user
      * Transaction update: false
      * Description: release if it's on authentication state and have enough credit
-     * Data: (bool) isAuthenticated
      * Data: (uint256) credit
-     * Data: (uint256) creditValidBlockNumber
      * Data: (uint256) creditValidTime
      *
      */
-    
-    uint256 private credit = 0;
-    uint256 private creditValidBlockNumber = 2;
-    uint256 private creditValidTime = 10 * 60;
 
-    function tFASuperOwner(uint256 token) public onlyOwner {
-        isAuthenticated = tFA.tFAAuthentication(token);
-        require(isAuthenticated == true);
-        // two factor authentication success, update related states:
-        latestAuthenticationTime = block.timestamp;
-        latestAuthenticationBlockNumber = block.number;
-        // set credit to maximum
-        credit = 5;
-    }
+    uint256 private credit = 0;
 
 
     function tFAReleasePolicy(uint256 creditTaken)
@@ -181,67 +155,6 @@ contract RTDS {
         return true;
     }
 
-    function getLatestAuthenticationTime() public view onlyOwner returns (uint256){
-        return latestAuthenticationTime;
-    }
-
-    function getLatestAuthenticationBlockNumber() public view onlyOwner returns (uint256){
-        return latestAuthenticationBlockNumber;
-    }
-
-    /*
-     * Sets the creditValidTime
-     * @param newCreditValidTime new credit valid time to set
-     */
-    function setCreditValidTime(uint256 newCreditValidTime)
-        public
-        onlyOwner
-        authenticated
-    {
-        // new credit valid time shouldn't be too small, otherwise the smart contract may be locked forever.
-        require(credit >= 5);
-        require(newCreditValidTime > 10 * 60);
-        creditValidTime = newCreditValidTime;
-        credit -= 5;
-    }
-
-    /*
-     * Gets the creditValidTime
-     *
-     */
-    function getCreditValidTime() public view onlyOwner returns (uint256) {
-        // new credit valid time shouldn't be too small, otherwise the smart contract may be locked forever.
-        return creditValidTime;
-    }
-
-    /*
-     * Sets the creditValidBlockNumber
-     * @param newCreditValidTime new credit valid time to set
-     */
-    function setCreditValidBlockNumber(uint256 newCreditValidBlockNumber)
-        public
-        onlyOwner
-        authenticated
-    {
-        // new credit valid time shouldn't be too small, otherwise the smart contract may be locked forever.
-        require(credit >= 5);
-        require(newCreditValidBlockNumber > 1);
-        creditValidBlockNumber = newCreditValidBlockNumber;
-        credit -= 5;
-    }
-
-    /*
-     * Gets the creditValidBlockNumber
-     *
-     */
-    function getCreditValidBlockNumber()
-        public
-        view
-        onlyOwner
-        returns (uint256)
-    {
-        return creditValidBlockNumber;
-    }
 
     /*
      *
@@ -267,10 +180,10 @@ contract RTDS {
     uint256 private maximumAllowedAmount = 1000;
     uint256 private maximumAllowedRatioMolecule = 10;
     uint256 private maximumAllowedRatioFraction = 1000;
-    uint256 private cumulativeAmount = 1000;
+    mapping(address =>uint256 ) private cumulativeAmountMap;
     uint256 private baseAmount;
 
-    function maximumCumulativeAmountLimit(uint256 amount)
+    function maximumCumulativeAmountLimit(Util.Account storage sender, Util.Transaction memory proposalTransaction)
         internal
         view
         returns (bool)
@@ -281,9 +194,9 @@ contract RTDS {
         );
         // check whether there is overflow
         if (
-            (maximumAllowedAmount > cumulativeAmount + amount) &&
+            (maximumAllowedAmount > cumulativeAmountMap[sender.accountAddress] + proposalTransaction.amount) &&
             (baseAmount * maximumAllowedRatioMolecule >
-                (cumulativeAmount + amount) * maximumAllowedRatioFraction)
+                (cumulativeAmountMap[sender.accountAddress] + proposalTransaction.amount) * maximumAllowedRatioFraction)
         ) {
             // allowed amount. not need to mutate
             return false;
@@ -291,9 +204,8 @@ contract RTDS {
         return true;
     }
 
-    function updateMaximumCumulativeAmount(uint256 amount) internal {
-        require(amount < maximumAllowedAmount);
-        cumulativeAmount += amount;
+    function updateMaximumCumulativeAmount(Util.Account storage sender, Util.Transaction memory transaction) internal {
+        cumulativeAmountMap[sender.accountAddress] += transaction.amount;
     }
 
     function setMaximumAllowedAmount(uint256 newMaximumAllowedAmount)
@@ -314,14 +226,24 @@ contract RTDS {
     ) internal onlyOwner authenticated {
         // this operation takes 2 credits
         require(credit >= 2);
-        require(newMaximumAllowedRatioMolecule <= newMaximumAllowedRatioFraction);
+        require(
+            newMaximumAllowedRatioMolecule <= newMaximumAllowedRatioFraction
+        );
         maximumAllowedRatioMolecule = newMaximumAllowedRatioMolecule;
         maximumAllowedRatioFraction = newMaximumAllowedRatioFraction;
         credit -= 2;
     }
 
-    function getMaximumAllowedRatio() public view onlyOwner returns (uint256[2] memory) {
-        uint256[2] memory ratio = [maximumAllowedRatioMolecule,maximumAllowedRatioFraction];
+    function getMaximumAllowedRatio()
+        public
+        view
+        onlyOwner
+        returns (uint256[2] memory)
+    {
+        uint256[2] memory ratio = [
+            maximumAllowedRatioMolecule,
+            maximumAllowedRatioFraction
+        ];
         return ratio;
     }
 
@@ -336,7 +258,6 @@ contract RTDS {
      * Description: there is a interval limit, exceeds which a 2FA is required.
      * Data: (uint256) maximumUnauthencatedTime: maximum allowed time interval for unauthenticated state.
      * Data: (uint256) maximumDurationBlockNumber: maximum allowed block number interval for unauthenticated state.
-     * Data: (uint256) latestAuthenticationTime
      * Data: (uint256) latestAuthenticationBlockNumber
      *
      */
@@ -346,21 +267,19 @@ contract RTDS {
     // default maximum time duration is 128 blocks
     uint256 private maximumUnauthencatedBlockNumber = 128;
 
-    // may be accessed by child process
-    uint256 internal latestAuthenticationTime;
-    uint256 internal latestAuthenticationBlockNumber;
 
-    function authenticatedStateDurationLimit() internal view returns (bool) {
+
+    function authenticatedStateDurationLimit(Util.Account memory account) internal view returns (bool) {
         if (
-            latestAuthenticationTime + maximumUnauthencatedTime <
+            account.latestVerifiedTime + maximumUnauthencatedTime <
             block.timestamp
         ) {
-            // mute
+
             return true;
         }
 
         if (
-            latestAuthenticationBlockNumber + maximumUnauthencatedBlockNumber <
+            account.latestVerifiedBlockNumber + maximumUnauthencatedBlockNumber <
             block.number
         ) {
             // mute
@@ -383,12 +302,13 @@ contract RTDS {
         credit -= 2;
     }
 
-    function getMaximumUnauthenticatedTime()  
+    function getMaximumUnauthenticatedTime()
         public
         view
         onlyOwner
-        returns(uint256)
+        returns (uint256)
     {
+
         return maximumUnauthencatedTime;
     }
 
@@ -404,16 +324,14 @@ contract RTDS {
         credit -= 2;
     }
 
-
-    function getMaximumUnauthenticatedBlockNumber()  
+    function getMaximumUnauthenticatedBlockNumber()
         public
         view
         onlyOwner
-        returns(uint256)
+        returns (uint256)
     {
         return maximumUnauthencatedBlockNumber;
     }
-
 
     /*
      *  RTD
@@ -421,33 +339,31 @@ contract RTDS {
      *  Release policy: R0
      *  Global mutation policy: GM0
      */
-    function riskyTransactionDetector(address receiver, uint256 amount)
+    function checkSecurity(Util.Account storage senderAccount , Util.Account memory receiverAccount, Util.Transaction memory proposalTransaction )
         internal
         view
         returns (bool)
     {
         // executes foundation policies
-        bool foundationPoliciesResult = false;
-        foundationPoliciesResult = naiveStrictPolicy();
+        bool foundationPoliciesResult = naiveStrictPolicy();
 
         // executes release policies
         bool releasePoliciesResult = false;
-        releasePoliciesResult =
-            releasePoliciesResult ||
-            (whiteListReleasePolicy(receiver) && !muteWhiteListReleasePolicy());
+        if (releasePoliciesResult == false) {
+            releasePoliciesResult =    releasePoliciesResult ||  (whiteListReleasePolicy(receiverAccount) && !muteWhiteListReleasePolicy());
+        }
 
         // executes global mutation policies
         bool globalMutationPoliciesResult = false;
-        globalMutationPoliciesResult = maximumCumulativeAmountLimit(amount);
+        if (globalMutationPoliciesResult == false) {
+            globalMutationPoliciesResult = maximumCumulativeAmountLimit(senderAccount, proposalTransaction);
+        }
+        
 
         bool isSecure = foundationPoliciesResult ||
             ((!globalMutationPoliciesResult) && releasePoliciesResult);
 
-        if (isSecure == true) {
-            return isSecure;
-        } else {
-            // check whether it can be released by global release Policy
-        }
+        return isSecure;
     }
 
     /*
@@ -456,12 +372,12 @@ contract RTDS {
      *  Release policy: R0
      *  Global mutation policy: GM0
      */
-    function transactionUpdator(address receiver, uint256 amount) internal {
+    function transactionUpdator(Util.Account storage senderAccount , Util.Account memory receiverAccount, Util.Transaction memory proposalTransaction) internal {
         // updates release policies
         // no release policy should be updated after transaction
 
         // updates global mutation policy
-        updateMaximumCumulativeAmount(amount);
+        updateMaximumCumulativeAmount(senderAccount , proposalTransaction);
     }
 
     /*
@@ -470,40 +386,9 @@ contract RTDS {
      *  Release policy: R0
      *  Global mutation policy: GM0
      */
-    function depositUpdator(address receiver, uint256 amount) internal {
-        // updates release policies
-        // no release policy should be updated after transaction.
-        // updates global mutation policy
-        // no release policy should be updated after deposit.
+    function depositUpdator(Util.Transaction memory transaction) internal {
+        
     }
 
-    function deposit() public payable {}
 
-    function withdraw() public payable onlyOwner authenticated {
-        payable(msg.sender).transfer(address(this).balance);
-    }
-
-    function transferOut(address payable receiver, uint256 amount)
-        public
-        payable
-        onlyOwner
-    {
-        bool isSecure = riskyTransactionDetector(receiver, amount);
-        bool allowTransfer = false;
-        if (isSecure) {
-            allowTransfer = true;
-        } else {
-            // A super transaction takes 5 credits
-            require(credit >= 5);
-            allowTransfer = true;
-            credit -= 5;
-        }
-        require(allowTransfer == true, "Fail To Transfer");
-        payable(receiver).transfer(amount);
-        transactionUpdator(receiver, amount);
-    }
-
-    function getValue() public view onlyOwner returns (uint256) {
-        return address(this).balance;
-    }
 }
