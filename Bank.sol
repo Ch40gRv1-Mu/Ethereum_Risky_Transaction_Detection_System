@@ -26,10 +26,10 @@ contract Bank {
     }
 
     event NewRegistrationChallenge(address account, bytes32 challenge);
-    event NewRegistrationStatus(address account, bool verified);
+    event NewRegistrationStatus(address account, bool isRegistrated);
 
     event NewTransactionsChallenge(address account, bytes32 challenge);
-    event NewTransactionStatus(address to, uint256 amount, bool verified);
+    event NewTransactionStatus(address to, uint256 amount, bool isRegistrated);
 
     mapping(address => Util.Account) _addressMap;
 
@@ -44,7 +44,7 @@ contract Bank {
     function getRegistrationChallenge() public payable {
         require(
             _addressMap[msg.sender].isRegistered == false,
-            "Only unverified accounts can request registration."
+            "Only unregistrated accounts can request registration."
         );
 
         // first create the random part of the challenge
@@ -158,12 +158,13 @@ contract Bank {
         bytes32 randomChallenge = getRandom();
 
         Util.Transaction memory newTransaction;
-        newTransaction.beneficiary = to;
         newTransaction.amount = amount;
+        newTransaction.receiverAddress = to;
+        newTransaction.senderAddress = msg.sender;
         newTransaction.transactionTime = 0;
         newTransaction.transactionChallenge = sha256(
             abi.encodePacked(
-                newTransaction.beneficiary,
+                newTransaction.receiverAddress,
                 newTransaction.amount,
                 newTransaction.transactionTime,
                 RequestType.Registration,
@@ -180,7 +181,7 @@ contract Bank {
             i++
         ) {
             if (
-                _addressMap[msg.sender]._delayedTransactions[i].verified == true
+                _addressMap[msg.sender]._delayedTransactions[i].isRegistrated == true
             ) {
                 _addressMap[msg.sender]._delayedTransactions[
                     i
@@ -284,11 +285,11 @@ contract Bank {
 
                     _addressMap[msg.sender]
                         ._delayedTransactions[i]
-                        .verified = true;
+                        .isRegistrated = true;
                     emit NewTransactionStatus(
                         _addressMap[msg.sender]
                             ._delayedTransactions[i]
-                            .beneficiary,
+                            .receiverAddress,
                         _addressMap[msg.sender]._delayedTransactions[i].amount,
                         true
                     );
@@ -299,7 +300,7 @@ contract Bank {
         }
 
         emit NewTransactionStatus(
-            _addressMap[msg.sender]._delayedTransactions[i].beneficiary,
+            _addressMap[msg.sender]._delayedTransactions[i].receiverAddress,
             _addressMap[msg.sender]._delayedTransactions[i].amount,
             false
         );

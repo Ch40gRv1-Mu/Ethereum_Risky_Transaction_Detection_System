@@ -6,32 +6,16 @@ pragma solidity >=0.6.6 <0.9.0;
 import "./Util.sol";
 
 
-contract TFA {
-    // A toy tFAAuthentication for testing
-    function tFAAuthentication(uint256 token) public pure returns (bool) {
-        if (token == 1) {
-            return true;
-        }
-        return false;
-    }
-
-    function tFAAuthentication_test() public pure returns (bool) {
-        return true;
-    }
-}
-
 contract RTDS {
     // Owner of the smart contract
     address public owner;
 
 
-    // A TFA contract
-    TFA tFA = new TFA();
 
 
     constructor() {
         owner = msg.sender;
-        latestAuthenticationBlockNumber= block.number;
+       //latestAuthenticationBlockNumber= block.number;
     }
 
     /*
@@ -145,7 +129,6 @@ contract RTDS {
     function tFAReleasePolicy(uint256 creditTaken)
         internal
         onlyOwner
-        authenticated
         returns (bool)
     {
         if (creditTaken > credit) {
@@ -164,86 +147,80 @@ contract RTDS {
 
     /*
      * Id: GM0
-     * Policy name: maximum cumulative amount and ratio limit.
-     * Type: address independent policy
-     * Privileges: Other
-     * Transaction update: true
-     * Description: there is a cumulative limit on the amount and ratio of Wei to be released
-     * Data: uint256 maximumAmount: maximum allowed amount of Wei to be released
-     * Data: static uint256 maximumRatioFraction: maximum allowed amount of Wei to be released
-     * Data: static uint256 maximumRatioMolecule: maximum allowed amount of Wei to be released
-     * Data: uint256 cumulativeAmount
-     * Data: uint256 baseAmount
-     *
+     * Policy name: maximum cumulative amount limit.
      */
 
-    uint256 private maximumAllowedAmount = 1000;
-    uint256 private maximumAllowedRatioMolecule = 10;
-    uint256 private maximumAllowedRatioFraction = 1000;
-    mapping(address =>uint256 ) private cumulativeAmountMap;
-    uint256 private baseAmount;
+    uint256 private DEFAULT_MAXIMUM_ALLOWED_AMOUNT = 1000;
+    uint256[] private  DEFAULT_MAXIMUM_ALLOWED_RATIO = [10, 1000];
+    mapping(address =>uint256 ) private cumulativeUnauthenticatedAmountMap;
+    mapping(address =>uint256 ) private baseBalanceMap;
+    mapping(address =>uint256 ) private maximumAllowedAmountMap;
+    mapping(address =>uint256[]) private maximumAllowedRatioMap;
+    
 
-    function maximumCumulativeAmountLimit(Util.Account storage sender, Util.Transaction memory proposalTransaction)
-        internal
+    
+    // temporarily be public for testing purposes.
+    function maximumCumulativeAmountLimit(address senderAccountAddress, uint256 proposedAmount)
+        public
         view
         returns (bool)
     {
+        // maximumAllowedRatio Molecule: maximumAllowedRatioMap[sender.accountAddress][0]
+        // maximumAllowedRatio Fraction: maximumAllowedRatioMap[sender.accountAddress][1]
         require(
-            maximumAllowedRatioMolecule <= maximumAllowedRatioFraction &&
-                maximumAllowedRatioFraction != 0
+            maximumAllowedRatioMap[senderAccountAddress][0] <= maximumAllowedRatioMap[senderAccountAddress][1] &&
+                maximumAllowedRatioMap[senderAccountAddress][1] != 0
         );
+
         // check whether there is overflow
+        //(baseBalanceMap[senderAccountAddress] * maximumAllowedRatioMap[senderAccountAddress][0] >         (cumulativeUnauthenticatedAmountMap[senderAccountAddress] + proposedAmount) * maximumAllowedRatioMap[senderAccountAddress][1])
         if (
-            (maximumAllowedAmount > cumulativeAmountMap[sender.accountAddress] + proposalTransaction.amount) &&
-            (baseAmount * maximumAllowedRatioMolecule >
-                (cumulativeAmountMap[sender.accountAddress] + proposalTransaction.amount) * maximumAllowedRatioFraction)
-        ) {
-            // allowed amount. not need to mutate
+            (maximumAllowedAmountMap[senderAccountAddress] > cumulativeUnauthenticatedAmountMap[senderAccountAddress] + proposedAmount) && (baseBalanceMap[senderAccountAddress] * maximumAllowedRatioMap[senderAccountAddress][0] > (cumulativeUnauthenticatedAmountMap[senderAccountAddress] + proposedAmount) * maximumAllowedRatioMap[senderAccountAddress][1]))
+             {
+            // allowed amount not need to mutate
             return false;
         }
         return true;
     }
 
-    function updateMaximumCumulativeAmount(Util.Account storage sender, Util.Transaction memory transaction) internal {
-        cumulativeAmountMap[sender.accountAddress] += transaction.amount;
+    function updateMaximumCumulativeAmount(address senderAccountAddress, uint256 amount) internal {
+        cumulativeUnauthenticatedAmountMap[senderAccountAddress] += amount;
     }
 
-    function setMaximumAllowedAmount(uint256 newMaximumAllowedAmount)
-        internal
+    function getMaximumCumulativeAmount(address senderAccountAddress) public view onlyOwner returns(uint256) {
+        return  cumulativeUnauthenticatedAmountMap[senderAccountAddress];
+    }
+
+
+
+    function setMaximumAllowedAmount(uint256 newMaximumAllowedAmount, address senderAccountAddress)
+        public
         onlyOwner
-        authenticated
     {
-        maximumAllowedAmount = newMaximumAllowedAmount;
+        maximumAllowedAmountMap[senderAccountAddress] = newMaximumAllowedAmount;
     }
 
-    function getMaximumAllowedAmount() public view onlyOwner returns (uint256) {
-        return maximumAllowedAmount;
+
+
+    function getMaximumAllowedAmount(address senderAccountAddress) public view onlyOwner returns (uint256) {
+        return maximumAllowedAmountMap[senderAccountAddress];
     }
 
     function setMaximumAllowedRatio(
-        uint256 newMaximumAllowedRatioMolecule,
-        uint256 newMaximumAllowedRatioFraction
-    ) internal onlyOwner authenticated {
-        // this operation takes 2 credits
-        require(credit >= 2);
-        require(
-            newMaximumAllowedRatioMolecule <= newMaximumAllowedRatioFraction
-        );
-        maximumAllowedRatioMolecule = newMaximumAllowedRatioMolecule;
-        maximumAllowedRatioFraction = newMaximumAllowedRatioFraction;
-        credit -= 2;
+        uint256 [] memory newMaximumAllowedRatio, address senderAccountAddress
+    ) internal onlyOwner{
+        require(newMaximumAllowedRatio.length == 2
+        && newMaximumAllowedRatio[0]<=newMaximumAllowedRatio[1] && newMaximumAllowedRatio[1]==1);
+        maximumAllowedRatioMap[senderAccountAddress] = newMaximumAllowedRatio;
     }
 
-    function getMaximumAllowedRatio()
+    function getMaximumAllowedRatio(address senderAccountAddress)
         public
         view
         onlyOwner
-        returns (uint256[2] memory)
+        returns (uint256[] memory)
     {
-        uint256[2] memory ratio = [
-            maximumAllowedRatioMolecule,
-            maximumAllowedRatioFraction
-        ];
+        uint256[] memory ratio = maximumAllowedRatioMap[senderAccountAddress];
         return ratio;
     }
 
@@ -269,7 +246,8 @@ contract RTDS {
 
 
 
-    function authenticatedStateDurationLimit(Util.Account memory account) internal view returns (bool) {
+    // temporarily put as public for testing purpose
+    function maximumUnauthenticatedIntervalLimit(Util.Account memory account) public view returns (bool) {
         if (
             account.latestVerifiedTime + maximumUnauthencatedTime <
             block.timestamp
@@ -288,18 +266,11 @@ contract RTDS {
         return false;
     }
 
-    function setMaximumUnauthencatedTime(uint256 newMaximumUnauthencatedTime)
+    function setMaximumUnauthenticatedTime(uint256 newMaximumUnauthencatedTime)
         public
         onlyOwner
-        authenticated
     {
-        // this operation takes 2 credits
-        require(
-            credit >= 2,
-            "setMaximumUnauthencatedTime: no enough credits. Authenticate first."
-        );
         maximumUnauthencatedTime = newMaximumUnauthencatedTime;
-        credit -= 2;
     }
 
     function getMaximumUnauthenticatedTime()
@@ -308,20 +279,13 @@ contract RTDS {
         onlyOwner
         returns (uint256)
     {
-
         return maximumUnauthencatedTime;
     }
 
     function setMaximumUnauthencatedBlockNumber(
         uint256 newMaximumUnauthencatedBlockNumber
-    ) public onlyOwner authenticated {
-        // this operation takes 2 credits
-        require(
-            credit >= 2,
-            "setMaximumUnauthencatedTime: no enough credits. Authenticate first."
-        );
+    ) public onlyOwner {
         maximumUnauthencatedBlockNumber = newMaximumUnauthencatedBlockNumber;
-        credit -= 2;
     }
 
     function getMaximumUnauthenticatedBlockNumber()
@@ -339,8 +303,8 @@ contract RTDS {
      *  Release policy: R0
      *  Global mutation policy: GM0
      */
-    function checkSecurity(Util.Account storage senderAccount , Util.Account memory receiverAccount, Util.Transaction memory proposalTransaction )
-        internal
+    function checkSecurity(Util.Account memory senderAccount , Util.Account memory receiverAccount, Util.Transaction memory proposedTransaction )
+        public
         view
         returns (bool)
     {
@@ -356,7 +320,7 @@ contract RTDS {
         // executes global mutation policies
         bool globalMutationPoliciesResult = false;
         if (globalMutationPoliciesResult == false) {
-            globalMutationPoliciesResult = maximumCumulativeAmountLimit(senderAccount, proposalTransaction);
+            globalMutationPoliciesResult = maximumCumulativeAmountLimit(senderAccount.accountAddress, proposedTransaction.amount);
         }
         
 
@@ -372,22 +336,31 @@ contract RTDS {
      *  Release policy: R0
      *  Global mutation policy: GM0
      */
-    function transactionUpdator(Util.Account storage senderAccount , Util.Account memory receiverAccount, Util.Transaction memory proposalTransaction) internal {
+    function transactionUpdator(Util.Account memory senderAccount , Util.Account memory receiverAccount, Util.Transaction memory proposedTransaction) public {
         // updates release policies
         // no release policy should be updated after transaction
 
         // updates global mutation policy
-        updateMaximumCumulativeAmount(senderAccount , proposalTransaction);
+        updateMaximumCumulativeAmount(senderAccount.accountAddress , proposedTransaction.amount);
     }
 
-    /*
+
+        /*
      *  depositUpdator
      *  Foundation policy: B0
      *  Release policy: R0
      *  Global mutation policy: GM0
      */
-    function depositUpdator(Util.Transaction memory transaction) internal {
-        
+    function depositUpdator(Util.Account memory receiverAccount, Util.Transaction memory transaction) internal {
+        require(receiverAccount.isRegistered==true, "Falled to update deposit record, the user is not registered yet.");   
+    }
+
+    function registrationUpdator(Util.Account memory newAccount) public onlyOwner {
+        // update for GM0
+        require(cumulativeUnauthenticatedAmountMap[newAccount.accountAddress]==0);
+        maximumAllowedAmountMap[newAccount.accountAddress] = DEFAULT_MAXIMUM_ALLOWED_AMOUNT;
+        maximumAllowedRatioMap[newAccount.accountAddress] = DEFAULT_MAXIMUM_ALLOWED_RATIO;
+        baseBalanceMap[newAccount.accountAddress] = newAccount.currentBalance;
     }
 
 
