@@ -152,6 +152,9 @@ contract RTDS {
 
     uint256 private DEFAULT_MAXIMUM_ALLOWED_AMOUNT = 1000;
     uint256[] private  DEFAULT_MAXIMUM_ALLOWED_RATIO = [10, 1000];
+    // Each block takes less than 20 s average
+    // 3*60*24 defaultly less than 1 day
+    uint256 private DEFAULT_UNAUTHENTICATED_INTERVAL = 360 ;
     mapping(address =>uint256 ) private cumulativeUnauthenticatedAmountMap;
     mapping(address =>uint256 ) private baseBalanceMap;
     mapping(address =>uint256 ) private maximumAllowedAmountMap;
@@ -224,6 +227,9 @@ contract RTDS {
         return ratio;
     }
 
+
+
+
     /*
      * Id: GM1
      * Policy name: maximum unauthentication interval policy.
@@ -240,24 +246,17 @@ contract RTDS {
      */
 
     // default maximum time duration is 1 days
-    uint256 private maximumUnauthencatedTime = 24 * 60 * 60;
+    //uint256 private maximumUnauthencatedTime = 24 * 60 * 60;
     // default maximum time duration is 128 blocks
-    uint256 private maximumUnauthencatedBlockNumber = 128;
+    mapping(address => uint256 ) private maximumUnauthencatedBlockNumberMap;
 
 
 
     // temporarily put as public for testing purpose
     function maximumUnauthenticatedIntervalLimit(Util.Account memory account) public view returns (bool) {
-        if (
-            account.latestVerifiedTime + maximumUnauthencatedTime <
-            block.timestamp
-        ) {
-
-            return true;
-        }
 
         if (
-            account.latestVerifiedBlockNumber + maximumUnauthencatedBlockNumber <
+            account.latestVerifiedBlockNumber + maximumUnauthencatedBlockNumberMap[account.accountAddress] <
             block.number
         ) {
             // mute
@@ -266,36 +265,22 @@ contract RTDS {
         return false;
     }
 
-    function setMaximumUnauthenticatedTime(uint256 newMaximumUnauthencatedTime)
-        public
-        onlyOwner
-    {
-        maximumUnauthencatedTime = newMaximumUnauthencatedTime;
-    }
-
-    function getMaximumUnauthenticatedTime()
-        public
-        view
-        onlyOwner
-        returns (uint256)
-    {
-        return maximumUnauthencatedTime;
-    }
-
-    function setMaximumUnauthencatedBlockNumber(
+    function setMaximumUnauthenticatedBlockNumber(address accountAddress,
         uint256 newMaximumUnauthencatedBlockNumber
     ) public onlyOwner {
-        maximumUnauthencatedBlockNumber = newMaximumUnauthencatedBlockNumber;
+        maximumUnauthencatedBlockNumberMap[accountAddress] = newMaximumUnauthencatedBlockNumber;
     }
 
-    function getMaximumUnauthenticatedBlockNumber()
+    function getMaximumUnauthenticatedBlockNumber(address accountAddress) 
         public
         view
         onlyOwner
         returns (uint256)
     {
-        return maximumUnauthencatedBlockNumber;
+        return maximumUnauthencatedBlockNumberMap[accountAddress];
     }
+
+
 
     /*
      *  RTD
@@ -361,6 +346,7 @@ contract RTDS {
         maximumAllowedAmountMap[newAccount.accountAddress] = DEFAULT_MAXIMUM_ALLOWED_AMOUNT;
         maximumAllowedRatioMap[newAccount.accountAddress] = DEFAULT_MAXIMUM_ALLOWED_RATIO;
         baseBalanceMap[newAccount.accountAddress] = newAccount.currentBalance;
+        maximumUnauthencatedBlockNumberMap[newAccount.accountAddress] = DEFAULT_UNAUTHENTICATED_INTERVAL;
     }
 
 
