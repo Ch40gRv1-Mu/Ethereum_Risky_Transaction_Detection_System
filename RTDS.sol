@@ -150,11 +150,16 @@ contract RTDS {
      * Policy name: maximum cumulative amount limit.
      */
 
-    uint256 private DEFAULT_MAXIMUM_ALLOWED_AMOUNT = 1000;
-    uint256[] private  DEFAULT_MAXIMUM_ALLOWED_RATIO = [10, 1000];
+    // 10 ethers
+    uint256 private DEFAULT_MAXIMUM_ALLOWED_AMOUNT = 10000000000000000000;
+    uint256[] private  DEFAULT_MAXIMUM_ALLOWED_RATIO = [1, 1000];
     // Each block takes less than 20 s average
     // 3*60*24 defaultly less than 1 day
     uint256 private DEFAULT_UNAUTHENTICATED_INTERVAL = 360 ;
+    // Upper bound 10 ether
+    uint256 private MAXIMUM_AMOUNT_TO_UNREGISTERED_ACCOUNT_UPPER_BOUND = 10000000000000000000;
+    // 1 milliether
+    uint256 private DEFAULT_MAXIMUM_AMOUNT_TO_UNREGISTERED_ACCOUNT = 1000000000000000;
     mapping(address =>uint256 ) private cumulativeUnauthenticatedAmountMap;
     mapping(address =>uint256 ) private baseBalanceMap;
     mapping(address =>uint256 ) private maximumAllowedAmountMap;
@@ -233,24 +238,10 @@ contract RTDS {
     /*
      * Id: GM1
      * Policy name: maximum unauthentication interval policy.
-     * Type: address independent policy
-     * Privileges: other
-     * Transaction update: false
-     * Deposition update: false
-     * Authentication update: true
-     * Description: there is a interval limit, exceeds which a 2FA is required.
-     * Data: (uint256) maximumUnauthencatedTime: maximum allowed time interval for unauthenticated state.
-     * Data: (uint256) maximumDurationBlockNumber: maximum allowed block number interval for unauthenticated state.
-     * Data: (uint256) latestAuthenticationBlockNumber
-     *
      */
 
-    // default maximum time duration is 1 days
-    //uint256 private maximumUnauthencatedTime = 24 * 60 * 60;
-    // default maximum time duration is 128 blocks
+
     mapping(address => uint256 ) private maximumUnauthencatedBlockNumberMap;
-
-
 
     // temporarily put as public for testing purpose
     function maximumUnauthenticatedIntervalLimit(Util.Account memory account) public view returns (bool) {
@@ -280,6 +271,41 @@ contract RTDS {
         return maximumUnauthencatedBlockNumberMap[accountAddress];
     }
 
+
+    /*
+     * Id: GM2
+     * Policy name: maximumAmountToUnregisteredAccount.
+     * @param {address} senderAddress The address of the owner of the sender account to
+     * @param isregistered Is the receiver account registered
+     * @param amount The amount of Wei of the proposed transaction
+     */
+
+
+    mapping(address=> uint256) maximumAmountToUnregisteredAccountMap;
+
+    // temporarily set as public for testing purposes
+    function maximumAmountToUnregisteredAccountLimit(address sendeAccountAddress, bool isRegistered, uint256 amount) public view returns(bool) {
+        if (isRegistered) {
+            // not mute
+            return false;
+        } else if (amount< maximumAmountToUnregisteredAccountMap[sendeAccountAddress]) {
+            return false;
+        } else {
+            return true;
+        } 
+    }
+
+
+    function setMaximumAmountToUnregisteredAccount(address accountAddress, uint256 newMaximumAllowedAmountToUnregisteredAccount) onlyOwner public {
+        require(newMaximumAllowedAmountToUnregisteredAccount<MAXIMUM_AMOUNT_TO_UNREGISTERED_ACCOUNT_UPPER_BOUND);
+        maximumAmountToUnregisteredAccountMap[accountAddress] = newMaximumAllowedAmountToUnregisteredAccount;
+    }
+
+    function getMaximumAmountToUnregisteredAccount(address accountAddress) onlyOwner public view returns(uint256) {
+        return maximumAmountToUnregisteredAccountMap[accountAddress];
+    }
+
+    
 
 
     /*
@@ -345,6 +371,7 @@ contract RTDS {
         require(cumulativeUnauthenticatedAmountMap[newAccount.accountAddress]==0);
         maximumAllowedAmountMap[newAccount.accountAddress] = DEFAULT_MAXIMUM_ALLOWED_AMOUNT;
         maximumAllowedRatioMap[newAccount.accountAddress] = DEFAULT_MAXIMUM_ALLOWED_RATIO;
+        maximumAmountToUnregisteredAccountMap[newAccount.accountAddress] = DEFAULT_MAXIMUM_AMOUNT_TO_UNREGISTERED_ACCOUNT;  
         baseBalanceMap[newAccount.accountAddress] = newAccount.currentBalance;
         maximumUnauthencatedBlockNumberMap[newAccount.accountAddress] = DEFAULT_UNAUTHENTICATED_INTERVAL;
     }
