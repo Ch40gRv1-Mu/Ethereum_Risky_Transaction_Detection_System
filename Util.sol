@@ -24,6 +24,12 @@ library Util {
         Transaction[] _delayedTransactions;
     }
 
+    struct Queue {
+        mapping(uint256=>uint256) data;
+        uint front;
+        uint back;
+    }
+
 
 
     function getEncodedChallenge(bytes32 challenge)

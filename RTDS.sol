@@ -231,6 +231,7 @@ contract RTDS {
         uint256[] memory ratio = maximumAllowedRatioMap[senderAccountAddress];
         return ratio;
     }
+    
 
 
 
@@ -305,7 +306,84 @@ contract RTDS {
         return maximumAmountToUnregisteredAccountMap[accountAddress];
     }
 
+    /**
+    * GM3: Maximum frequency limit 
+    *
+    *
+    */
+
+    // One thousand blocks take around 4 hours
+    uint256 INTERVAL_OF_FREQUENCY = 1000;
+    // Upperbound is around 10 transactions per 4 hours
+    uint256 MAXIMUM_AMOUNT_PER_THOUSAND_TRANSACTION_UPPERBOUND = 10;
+    uint256 DEFAULT_MAXIMUM_AMOUNT_PER_THOUSAND_TRANSACTION = 5;
+
+    mapping(address=> uint256) maximumAllowedTransactionsPerThousandBlocks;
+    mapping(address=> Util.Queue) recentTransactions;
+
+
+    // set to public for test purposes
+    /**
+    *  maximumFrequencyLimit
+    *  @param {address} senderAccountAddress The ethereum address that owns certain account
+    *  @return {bool} True if it should be muted, False otherwise
+    */ 
+    function maximumFrequencyLimit(address senderAccountAddress) public view returns (bool){
+        //popOutdatedTransactions(senderAccountAddress);
+        // exclusive bound: in case the account is not registered and no transactions in the sender account
+        bool shouldMute = getRecentTransactionsNumber(senderAccountAddress) >= maximumAllowedTransactionsPerThousandBlocks[senderAccountAddress];
+        return shouldMute;
+    }
+
+
+    // public for testing purposes
+    function popOutdatedTransactions(address senderAccountAddress) public {
+            while (
+            recentTransactions[senderAccountAddress].front != recentTransactions[senderAccountAddress].back
+            &&
+            recentTransactions[senderAccountAddress].data[recentTransactions[senderAccountAddress].front] 
+            + INTERVAL_OF_FREQUENCY < block.number
+            ) {
+            // will at most cache 10 datas per account
+            popTransaction(senderAccountAddress); 
+        }
+    }
+
+    // public for test purpose
+    function getRecentTransactionsNumber(address senderAccountAddress) public view returns(uint256) {
+        
+        return (recentTransactions[senderAccountAddress].back+MAXIMUM_AMOUNT_PER_THOUSAND_TRANSACTION_UPPERBOUND-recentTransactions[senderAccountAddress].front) % MAXIMUM_AMOUNT_PER_THOUSAND_TRANSACTION_UPPERBOUND;
+    }
+
+    // public for test purpose
+    function popTransaction(address senderAccountAddress) public {
+        delete recentTransactions[senderAccountAddress].data[recentTransactions[senderAccountAddress].front];
+        recentTransactions[senderAccountAddress].front = (recentTransactions[senderAccountAddress].front + 1) % MAXIMUM_AMOUNT_PER_THOUSAND_TRANSACTION_UPPERBOUND;
+    }
+
+
+    function getMaximumAllowedTransactionsPerThousandBlocks(address senderAccountAddress) public view returns (uint256) {
+        return maximumAllowedTransactionsPerThousandBlocks[senderAccountAddress];
+    }
+
+    function setMaximumAllowedTransactionsPerThousandBlocks(address senderAccountAddress, uint256 newMAximumAllowedTransactionsPerThousandBlocks) public {
     
+        require(newMAximumAllowedTransactionsPerThousandBlocks <= MAXIMUM_AMOUNT_PER_THOUSAND_TRANSACTION_UPPERBOUND, "The new value exceed the upperbound for maximum allowed transactions per thousand blocks.");
+        maximumAllowedTransactionsPerThousandBlocks[senderAccountAddress] = newMAximumAllowedTransactionsPerThousandBlocks;
+    }
+
+    // set to public for test purposes
+    function updateRecentTransactions(address senderAccountAddress) public {
+    
+        // strict upperbound
+        if (getRecentTransactionsNumber(senderAccountAddress) == MAXIMUM_AMOUNT_PER_THOUSAND_TRANSACTION_UPPERBOUND-1) {
+            popTransaction(senderAccountAddress);
+        }
+
+
+        recentTransactions[senderAccountAddress].back = (recentTransactions[senderAccountAddress].back+1) % MAXIMUM_AMOUNT_PER_THOUSAND_TRANSACTION_UPPERBOUND;
+        recentTransactions[senderAccountAddress].data[recentTransactions[senderAccountAddress].back] = block.number;
+    }
 
 
     /*
@@ -341,6 +419,11 @@ contract RTDS {
         return isSecure;
     }
 
+
+    function preSecurityCheckUpdator(Util.Account memory senderAccount , Util.Account memory receiverAccount, Util.Transaction memory proposedTransaction) public{
+        popOutdatedTransactions(senderAccount.accountAddress);
+    }
+
     /*
      *  transactionUpdator
      *  Foundation policy: B0
@@ -353,10 +436,12 @@ contract RTDS {
 
         // updates global mutation policy
         updateMaximumCumulativeAmount(senderAccount.accountAddress , proposedTransaction.amount);
+        updateRecentTransactions(senderAccount.accountAddress);
+
     }
 
 
-        /*
+    /*
      *  depositUpdator
      *  Foundation policy: B0
      *  Release policy: R0
@@ -374,6 +459,7 @@ contract RTDS {
         maximumAmountToUnregisteredAccountMap[newAccount.accountAddress] = DEFAULT_MAXIMUM_AMOUNT_TO_UNREGISTERED_ACCOUNT;  
         baseBalanceMap[newAccount.accountAddress] = newAccount.currentBalance;
         maximumUnauthencatedBlockNumberMap[newAccount.accountAddress] = DEFAULT_UNAUTHENTICATED_INTERVAL;
+        maximumAllowedTransactionsPerThousandBlocks[newAccount.accountAddress] = DEFAULT_MAXIMUM_AMOUNT_PER_THOUSAND_TRANSACTION;
     }
 
 
