@@ -152,8 +152,8 @@ contract Bank {
 
     function transferFunds(address to, uint256 amount) public payable {
         // XXX: check balance here
-        //require(_addressMap[msg.sender].currentBalance >= amount, "Not enough funds!");
-        //_addressMap[msg.sender].currentBalance -= amount;
+        //require(_addressMap[msg.sender].balance >= amount, "Not enough funds!");
+        //_addressMap[msg.sender].balance -= amount;
 
         bytes32 randomChallenge = getRandom();
 
@@ -315,7 +315,7 @@ contract Bank {
     }
 
     function getBalance() public view returns (uint256 balance) {
-        return _addressMap[msg.sender].currentBalance;
+        return _addressMap[msg.sender].balance;
     }
 
     function deposit() public payable {
@@ -323,7 +323,7 @@ contract Bank {
             _addressMap[msg.sender].isRegistered == true,
             "Please register first before deposit in"
         );
-        _addressMap[msg.sender].currentBalance += msg.value;
+        _addressMap[msg.sender].balance += msg.value;
     }
 
     function getRandom() private returns (bytes32 random) {

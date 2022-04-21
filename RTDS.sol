@@ -113,30 +113,57 @@ contract RTDS {
 
     /*
      * Id: GR0
-     * Policy name: two factor authentication credit release policy.
-     * Type: address independent policy
-     * Privileges: Super user
-     * Transaction update: false
-     * Description: release if it's on authentication state and have enough credit
-     * Data: (uint256) credit
-     * Data: (uint256) creditValidTime
+     * Policy name: Small amount release.
      *
      */
 
-    uint256 private credit = 0;
+    mapping(address=>uint256) smallAmountMap;
+    mapping(address=>uint256[]) smallRatioMap;
+    
+    uint256 DEFAULT_SMALL_AMOUNT = 1000000000;
+    // 1 ether
+    uint256 SMALL_AMOUNT_UPPERBOUND = 1000000000000000000;
+    uint256[] DEFAULT_SMALL_RATIO = [1,10000];
+    uint256[] SMALL_RATIO_UPPERBOUND = [1,10];
 
-
-    function tFAReleasePolicy(uint256 creditTaken)
-        internal
-        onlyOwner
-        returns (bool)
-    {
-        if (creditTaken > credit) {
-            return false;
-        }
-        credit = credit - creditTaken;
-        return true;
+    function getSmallAmount(address senderAccountAddress) public view returns (uint256){
+        return smallAmountMap[senderAccountAddress]; 
     }
+
+    function getSmallRatio(address senderAccountAddress) public view returns (uint256[] memory) {
+        uint256[] memory result =  smallRatioMap[senderAccountAddress];
+        return result;
+    }
+    
+    function setSmallAmount (address senderAccountAddress, uint256 newAmount) public {
+          require(newAmount<SMALL_AMOUNT_UPPERBOUND, "New small amount reaches the allowed upperbound (1 eth)");
+          // The account should be registered
+          smallAmountMap[senderAccountAddress] = newAmount;
+    }
+
+    function setSmallRatio(address senderAccountAddress, uint256[] memory newRatio) public {
+        require(newRatio.length == 2, 'The new ratio should follow format [<numerator>, <denominator>]');
+        require(newRatio[0]<=newRatio[1], "The new ratio should between 0 and 1");
+        require (newRatio[0]* SMALL_RATIO_UPPERBOUND[1] < SMALL_RATIO_UPPERBOUND[0]*newRatio[1], "New small ratio reaches the allowed upperbound (1/10)");
+        // The account should be registered
+        smallRatioMap[senderAccountAddress] = newRatio;
+    }
+
+    function smallAmountRelease(Util.Account memory senderAccount, uint256 amount) public view returns (bool) {
+        if (amount < smallAmountMap[senderAccount.accountAddress]) {
+            return true;
+        }
+
+        if (amount * smallRatioMap[senderAccount.accountAddress][1]<senderAccount.balance * smallRatioMap[senderAccount.accountAddress][0]) {
+            return true;
+        }
+
+        return false;
+
+    }
+
+
+
 
 
     /*
@@ -457,9 +484,12 @@ contract RTDS {
         maximumAllowedAmountMap[newAccount.accountAddress] = DEFAULT_MAXIMUM_ALLOWED_AMOUNT;
         maximumAllowedRatioMap[newAccount.accountAddress] = DEFAULT_MAXIMUM_ALLOWED_RATIO;
         maximumAmountToUnregisteredAccountMap[newAccount.accountAddress] = DEFAULT_MAXIMUM_AMOUNT_TO_UNREGISTERED_ACCOUNT;  
-        baseBalanceMap[newAccount.accountAddress] = newAccount.currentBalance;
+        baseBalanceMap[newAccount.accountAddress] = newAccount.balance;
         maximumUnauthencatedBlockNumberMap[newAccount.accountAddress] = DEFAULT_UNAUTHENTICATED_INTERVAL;
         maximumAllowedTransactionsPerThousandBlocks[newAccount.accountAddress] = DEFAULT_MAXIMUM_AMOUNT_PER_THOUSAND_TRANSACTION;
+
+        smallAmountMap[newAccount.accountAddress] = DEFAULT_SMALL_AMOUNT;
+        smallRatioMap[newAccount.accountAddress] = DEFAULT_SMALL_RATIO;
     }
 
 

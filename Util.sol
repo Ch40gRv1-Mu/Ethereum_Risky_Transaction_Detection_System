@@ -13,7 +13,7 @@ library Util {
     struct Account {
         address accountAddress;
         bool isRegistered;
-        uint256 currentBalance;
+        uint256 balance;
         uint256 latestVerifiedBlockNumber;
         uint256 latestVerifiedTime;
         uint16 credit;
